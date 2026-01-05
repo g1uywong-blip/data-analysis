@@ -1,0 +1,321 @@
+---
+title: "analysis"
+output: html_document
+date: "2025-12-29"
+---
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+dataanlytics <- read_excel("C:/Users/Guy Wong/OneDrive/Documents/data-analysis/data/dataanlytics.xlsx")
+rows_to_remove <- c(1,2,3,4,6,7,8)
+data_clean <- dataanlytics[-rows_to_remove, ]
+cols_to_remove <- c(3,4,6,7,9,10,12,13,15,16,18,19,21,22,24,25,27,28)
+data_clean <- data_clean[, -cols_to_remove]
+
+colnames(data_clean)[1:10] <- c(
+  "date", 
+  "Whole Economy",
+  "Private Sector",
+  "Public Sector",
+  "Services",
+  "Finance and Business Services",
+  "Public Sector excl. Financial Services",
+  "Manufacturing",
+  "Construction",
+  "Wholesaling, Retailing, Hotels & Restaurants"
+)
+# date and create Year/Month
+data_clean <- data_clean %>%
+  mutate(
+    date = parse_date_time(date, orders = "Y b"),  
+    Year = year(date),           
+    Month = month(date)  
+  )
+data_clean <- data_clean %>%
+  mutate(
+    across(
+      -c(date, Year, Month),
+      ~ parse_number(.)
+    )
+  )
+data_clean <- data_clean %>%
+  filter(Year >= 2007 & Year <= 2017)
+
+head(data_clean)
+str(data_clean)
+summary(data_clean)
+
+View(data_clean)
+
+```
+
+```{r}
+library(lubridate)
+library(tidyverse) 
+# Create a new table with only key years and public/private sectors
+
+key_sectors_data <- data_clean %>%
+  select(date, Year, `Private Sector`, `Public Sector`) %>%
+  filter(Year %in% c(2007,2008,2009, 2010,2011, 2014, 2016)) %>%
+  arrange(Year)
+
+print(key_sectors_data)
+
+# Get summary statistics for this filtered data
+cat("\n=== SUMMARY STATISTICS FOR KEY YEARS ===\n")
+summary(key_sectors_data)
+
+# Get detailed descriptive statistics
+desc_stats <- key_sectors_data %>%
+  group_by(Year) %>%
+  summarize(
+    Public_Mean = mean(`Public Sector`),
+    Public_SD = sd(`Public Sector`),
+    Public_Min = min(`Public Sector`),
+    Public_Max = max(`Public Sector`),
+    Private_Mean = mean(`Private Sector`),
+    Private_SD = sd(`Private Sector`),
+    Private_Min = min(`Private Sector`),
+    Private_Max = max(`Private Sector`),
+    
+    Observations = n(),
+    .groups = "drop"
+  )
+
+print(desc_stats)
+```
+
+
+
+
+
+
+```{r}
+library(ggplot2)
+library(tidyr)
+library(dplyr)
+
+# Create data_long from wide format 
+data_long <- data_clean %>%
+  pivot_longer(
+    cols = c("Public Sector", "Private Sector"),
+    names_to = "Sector",
+    values_to = "Value"
+  ) %>%
+  select(date, Sector, Value)  
+
+# create the plot
+ggplot(data_long, aes(x = date, y = Value, color = Sector)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5, alpha = 0.6) +
+  labs(
+    title = "Average Weekly Earnings Across Sectors",
+    subtitle = "2000–2014 (rolling 12-month averages)",
+    x = "Date",
+    y = "Average Weekly Earnings",
+    color = "Sector"
+  ) +
+  scale_x_date(date_labels = "%Y-%b", date_breaks = "6 months") +
+  scale_color_discrete(labels = c("Private Sector", "Public Sector")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
+  )
+```
+
+
+```{r}
+
+data_public_private <- data_clean %>%
+  pivot_longer(
+    cols = c("Public Sector", "Private Sector"),
+    names_to = "Sector",
+    values_to = "Value"
+  ) %>%
+  mutate(
+    post_2010 = ifelse(as.Date(date) >= as.Date("2010-01-01"), 1, 0),
+    is_public = ifelse(Sector == "Public Sector", 1, 0)
+  )
+
+
+# Filter to compare pure public vs private
+data_comparison <- data_public_private %>%
+  filter(Sector %in% c("Public Sector", "Private Sector"))
+
+model <- lm(Value ~ is_public + post_2010 + is_public:post_2010, 
+            data = data_comparison)
+summary(model)
+
+```
+
+
+
+
+```{r}
+# Plot over actual time with regression trends
+ggplot(data_comparison, aes(x = date, y = Value, color = Sector)) +
+  # Raw data points
+  geom_point(alpha = 0.3, size = 1.5) +
+  
+  # Separate regression lines for pre and post periods
+  geom_smooth(data = data_comparison %>% filter(post_2010 == 0),
+              method = "lm", se = FALSE, linewidth = 1) +
+  geom_smooth(data = data_comparison %>% filter(post_2010 == 1),
+              method = "lm", se = FALSE, linewidth = 1) +
+  
+  # Vertical line at austerity start
+  geom_vline(xintercept = as.Date("2010-01-01"), 
+             linetype = "dashed", color = "gray50", linewidth = 1) +
+  
+  
+  labs(title = "Public Sector Outpaced Private Sector After Austerity",
+       subtitle = "Regression lines show diverging trends post-2010",
+       x = "Date", y = "Weekly Earnings (£)",
+       caption = "Dashed line: Austerity begins (Jan 2010)") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Monthly pay gaps for 2009
+gap_2009 <- data_comparison %>%
+  filter(year(date) == 2009) %>%
+  group_by(date) %>%
+  summarize(
+    pay_gap = Value[Sector == "Public Sector"] -
+              Value[Sector == "Private Sector"],
+    .groups = "drop"
+  ) %>%
+  pull(pay_gap)
+
+# Monthly pay gaps for 2010
+gap_2010 <- data_comparison %>%
+  filter(year(date) == 2010) %>%
+  group_by(date) %>%
+  summarize(
+    pay_gap = Value[Sector == "Public Sector"] -
+              Value[Sector == "Private Sector"],
+    .groups = "drop"
+  ) %>%
+  pull(pay_gap)
+
+# Main t-test (difference-in-differences)
+t.test(gap_2010, gap_2009)
+
+
+```
+
+
+
+
+```{r}
+public_2009 <- data_comparison %>%
+  filter(Sector == "Public Sector", year(date) == 2009) %>%
+  pull(Value)
+
+public_2010 <- data_comparison %>%
+  filter(Sector == "Public Sector", year(date) == 2010) %>%
+  pull(Value)
+
+t.test(public_2010, public_2009)
+
+```
+
+
+```{r}
+private_2009 <- data_comparison %>%
+  filter(Sector == "Private Sector", year(date) == 2009) %>%
+  pull(Value)
+
+private_2010 <- data_comparison %>%
+  filter(Sector == "Private Sector", year(date) == 2010) %>%
+  pull(Value)
+
+t.test(private_2010, private_2009)
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+#Extract fitted values and residuals
+data_comparison <- data_comparison %>%
+  mutate(
+    fitted = fitted(model),
+    residuals = resid(model)
+  )
+#Residuals vs Fitted plot 
+ggplot(data_comparison, aes(x = fitted, y = residuals)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Residuals vs Fitted Values",
+    x = "Fitted (Predicted) Weekly Wages (£)",
+    y = "Residuals (£)"
+  ) +
+  theme_minimal()
+
+#residual over time
+ggplot(data_comparison, aes(x = date, y = residuals, color = Sector)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(
+    title = "Residuals Over Time",
+    x = "Date",
+    y = "Residuals (£)"
+  ) +
+  theme_minimal()
+
+# Add residuals to your data
+data_comparison <- data_comparison %>%
+  mutate(residuals = resid(model))
+
+# Q-Q plot
+ggplot(data_comparison, aes(sample = residuals)) +
+  stat_qq() +
+  stat_qq_line(color = "red", linetype = "dashed") +
+  labs(
+    title = "Normal Q-Q Plot of Regression Residuals",
+    x = "Theoretical Quantiles",
+    y = "Sample Residuals"
+  ) +
+  theme_minimal()
+
+```
+```{r}
+pvals <- c(
+  t.test(public_2010, public_2009)$p.value,           # Public 2009 vs 2010
+  t.test(private_2010, private_2009)$p.value,         # Private 2009 vs 2010
+  t.test(gap_2010, gap_2009)$p.value                  # Monthly pay gaps 2009 vs 2010
+)
+
+# Number of tests
+m <- length(pvals)
+
+# Bonferroni-adjusted p-values
+pvals_bonf <- p.adjust(pvals, method = "bonferroni")
+
+
+data.frame(
+  Test = c("Public 2009 vs 2010", 
+           "Private 2009 vs 2010", 
+           "Monthly Pay Gap 2009 vs 2010"),
+  P_value = round(pvals, 4),
+  Bonferroni_P = round(pvals_bonf, 4)
+)
+```
+
+
+
+

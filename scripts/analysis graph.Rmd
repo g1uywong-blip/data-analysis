@@ -8,7 +8,18 @@ date: "2025-12-29"
 library(tidyverse)
 library(readxl)
 library(lubridate)
-dataanlytics <- read_excel("C:/Users/Guy Wong/OneDrive/Documents/data-analysis/data/dataanlytics.xlsx")
+url <- "https://github.com/g1uywong-blip/data-analysis/raw/main/data/dataanlytics.xlsx"
+
+# Temporary local file
+dest <- tempfile(fileext = ".xlsx")
+
+# Download the Excel file
+download.file(url, dest, mode = "wb")
+
+# Read the Excel file
+dataanalytics <- read_excel(dest)
+
+
 rows_to_remove <- c(1,2,3,4,6,7,8)
 data_clean <- dataanlytics[-rows_to_remove, ]
 cols_to_remove <- c(3,4,6,7,9,10,12,13,15,16,18,19,21,22,24,25,27,28)
